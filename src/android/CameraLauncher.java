@@ -712,21 +712,19 @@ private String ouputModifiedBitmap(Bitmap bitmap, Uri uri) throws IOException {
      */
     public void onActivityResult(int requestCode, int resultCode, Intent intent) {
 
-        // Get src and dest types from request code for a Camera Activity
-        boolean fromCrop = requestCode / 256;
-        int srcType = ( (requestCode % 256) / 16) - 1;
+        boolean fromCrop = (requestCode / CROP_INDICATOR) > 0;
+        int srcType = ( (requestCode % CROP_INDICATOR) / 16) - 1;
         int destType = (requestCode % 16) - 1;
 
-
-        if (fromCrop) {
+        if (fromCrop) { // it is from performCrop()
             if (resultCode == Activity.RESULT_OK) {
                 if (srcType == CAMERA) {
-                try {
-                    processResultFromCamera(destType, intent);
-                } catch (IOException e) {
-                    e.printStackTrace();
-                    Log.e(LOG_TAG, "Unable to write to file");
-                }
+                    try {
+                        processResultFromCamera(destType, intent);
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                        Log.e(LOG_TAG, "Unable to write to file");
+                    }
                 } else if ((srcType == PHOTOLIBRARY) || (srcType == SAVEDPHOTOALBUM)) {
                     processResultFromGallery(destType, intent);
                 }
