@@ -89,8 +89,8 @@ public class CameraLauncher extends CordovaPlugin implements MediaScannerConnect
 
     private static final String LOG_TAG = "CameraLauncher";
 
-    //Where did this come from?
-    private static final int CROP_CAMERA = 100;
+    // indicator for crop editing
+    private static final int CROP_INDICATOR = 256;
 
     private int mQuality;                   // Compression quality hint (0-100: 0=low quality & high compression, 100=compress of max quality)
     private int targetWidth;                // desired width of the image
@@ -98,8 +98,8 @@ public class CameraLauncher extends CordovaPlugin implements MediaScannerConnect
     private Uri imageUri;                   // Uri of captured image
     private int encodingType;               // Type of encoding to use
     private int mediaType;                  // What type of media to retrieve
-    private int destType;                   // Source type (needs to be saved for the permission handling)
-    private int srcType;                    // Destination type (needs to be saved for permission handling)
+    private int destType;                   // Destination type (needs to be saved for the permission handling)
+    private int srcType;                    // Source type (needs to be saved for permission handling)
     private boolean saveToPhotoAlbum;       // Should the picture be saved to the device's photo album
     private boolean correctOrientation;     // Should the pictures orientation be corrected
     private boolean orientationCorrected;   // Has the picture's orientation been corrected
@@ -303,8 +303,6 @@ public class CameraLauncher extends CordovaPlugin implements MediaScannerConnect
         return new File(getTempDirectoryPath(), fileName);
     }
 
-
-
     /**
      * Get image from photo library.
      *
@@ -365,7 +363,7 @@ public class CameraLauncher extends CordovaPlugin implements MediaScannerConnect
    *
    * @param picUri
    */
-  private void performCrop(Uri picUri, int destType, Intent cameraIntent) {
+  private void performCrop(Uri picUri, int srcType, int destType, Intent cameraIntent) {
     try {
       Intent cropIntent = new Intent("com.android.camera.action.CROP");
       // indicate image type and Uri
@@ -392,7 +390,7 @@ public class CameraLauncher extends CordovaPlugin implements MediaScannerConnect
 
       if (this.cordova != null) {
         this.cordova.startActivityForResult((CordovaPlugin) this,
-            cropIntent, CROP_CAMERA + destType);
+            cropIntent, CROP_INDICATOR + (srcType * 16 + 1) + destType + 1);
       }
     } catch (ActivityNotFoundException anfe) {
       Log.e(LOG_TAG, "Crop operation not supported on this device");
@@ -602,7 +600,7 @@ private String ouputModifiedBitmap(Bitmap bitmap, Uri uri) throws IOException {
 
 
 
-/**
+    /**
      * Applies all needed transformation to the image received from the gallery.
      *
      * @param destType          In which form should we return the image
@@ -715,21 +713,22 @@ private String ouputModifiedBitmap(Bitmap bitmap, Uri uri) throws IOException {
     public void onActivityResult(int requestCode, int resultCode, Intent intent) {
 
         // Get src and dest types from request code for a Camera Activity
-        int srcType = (requestCode / 16) - 1;
+        boolean fromCrop = requestCode / 256;
+        int srcType = ( (requestCode % 256) / 16) - 1;
         int destType = (requestCode % 16) - 1;
 
-        // If Camera Crop
-        if (requestCode >= CROP_CAMERA) {
-            if (resultCode == Activity.RESULT_OK) {
 
-                // Because of the inability to pass through multiple intents, this hack will allow us
-                // to pass arcane codes back.
-                destType = requestCode - CROP_CAMERA;
+        if (fromCrop) {
+            if (resultCode == Activity.RESULT_OK) {
+                if (srcType == CAMERA) {
                 try {
                     processResultFromCamera(destType, intent);
                 } catch (IOException e) {
                     e.printStackTrace();
                     Log.e(LOG_TAG, "Unable to write to file");
+                }
+                } else if ((srcType == PHOTOLIBRARY) || (srcType == SAVEDPHOTOALBUM)) {
+                    processResultFromGallery(destType, intent);
                 }
 
             }// If cancelled
@@ -750,7 +749,7 @@ private String ouputModifiedBitmap(Bitmap bitmap, Uri uri) throws IOException {
                     if(this.allowEdit)
                     {
                         Uri tmpFile = Uri.fromFile(createCaptureFile(this.encodingType));
-                        performCrop(tmpFile, destType, intent);
+                        performCrop(tmpFile, CAMERA, destType, intent);
                     }
                     else {
                         this.processResultFromCamera(destType, intent);
@@ -774,13 +773,18 @@ private String ouputModifiedBitmap(Bitmap bitmap, Uri uri) throws IOException {
         // If retrieving photo from library
         else if ((srcType == PHOTOLIBRARY) || (srcType == SAVEDPHOTOALBUM)) {
             if (resultCode == Activity.RESULT_OK && intent != null) {
-                final Intent i = intent;
-                final int finalDestType = destType;
-                cordova.getThreadPool().execute(new Runnable() {
-                    public void run() {
-                        processResultFromGallery(finalDestType, i);
-                    }
-                });
+                if(this.allowEdit)
+                {
+                    performCrop(intent.getData(), srcType, destType, intent);
+                } else {
+                    final Intent i = intent;
+                    final int finalDestType = destType;
+                    cordova.getThreadPool().execute(new Runnable() {
+                        public void run() {
+                            processResultFromGallery(finalDestType, i);
+                        }
+                    });
+                }
             }
             else if (resultCode == Activity.RESULT_CANCELED) {
                 this.failPicture("Selection cancelled.");
