@@ -363,7 +363,7 @@ public class CameraLauncher extends CordovaPlugin implements MediaScannerConnect
    *
    * @param picUri
    */
-  private void performCrop(Uri picUri, int srcType, int destType, Intent cameraIntent) {
+  private void performCrop(Uri picUri, int srcType, int destType, Intent previousIntent) {
     try {
       Intent cropIntent = new Intent("com.android.camera.action.CROP");
       // indicate image type and Uri
@@ -390,17 +390,27 @@ public class CameraLauncher extends CordovaPlugin implements MediaScannerConnect
 
       if (this.cordova != null) {
         this.cordova.startActivityForResult((CordovaPlugin) this,
-            cropIntent, CROP_INDICATOR + (srcType * 16 + 1) + destType + 1);
+            cropIntent, CROP_INDICATOR + (srcType + 1) * 16 + destType + 1);
       }
     } catch (ActivityNotFoundException anfe) {
       Log.e(LOG_TAG, "Crop operation not supported on this device");
-      try {
-          processResultFromCamera(destType, cameraIntent);
-      }
-      catch (IOException e)
-      {
-          e.printStackTrace();
-          Log.e(LOG_TAG, "Unable to write to file");
+      if (srcType == CAMERA ) {
+          try {
+              processResultFromCamera(destType, previousIntent);
+          }
+          catch (IOException e)
+          {
+              e.printStackTrace();
+              Log.e(LOG_TAG, "Unable to write to file");
+          }
+      } else if ((srcType == PHOTOLIBRARY) || (srcType == SAVEDPHOTOALBUM)) {
+          final Intent i = previousIntent;
+          final int finalDestType = destType;
+          cordova.getThreadPool().execute(new Runnable() {
+              public void run() {
+                  processResultFromGallery(finalDestType, i);
+              }
+          });
       }
     }
   }
@@ -726,7 +736,13 @@ private String ouputModifiedBitmap(Bitmap bitmap, Uri uri) throws IOException {
                         Log.e(LOG_TAG, "Unable to write to file");
                     }
                 } else if ((srcType == PHOTOLIBRARY) || (srcType == SAVEDPHOTOALBUM)) {
-                    processResultFromGallery(destType, intent);
+                    final Intent i = intent;
+                    final int finalDestType = destType;
+                    cordova.getThreadPool().execute(new Runnable() {
+                        public void run() {
+                            processResultFromGallery(finalDestType, i);
+                        }
+                    });
                 }
 
             }// If cancelled
